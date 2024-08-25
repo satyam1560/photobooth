@@ -7,15 +7,13 @@ class MyWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: QrImageView(
-        data: downloadUrl,  
-        version: QrVersions.auto,
-        size: 320,
-        gapless: false,
-        embeddedImageStyle: const QrEmbeddedImageStyle(
-          size: Size(80, 80),
-        ),
+    return QrImageView(
+      data: downloadUrl,  
+      version: QrVersions.auto,
+      size: 320,
+      gapless: false,
+      embeddedImageStyle: const QrEmbeddedImageStyle(
+        size: Size(80, 80),
       ),
     );
   }
