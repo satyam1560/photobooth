@@ -1,7 +1,9 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:photobooth_qr/firebase_options.dart';
-import 'package:photobooth_qr/src/photobooth/ui/pages/capture_page.dart';
+
+
+import 'src/photobooth/ui/pages/capture_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,4 +28,3 @@ class MyApp extends StatelessWidget {
     );
   }
 }
-

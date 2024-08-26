@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:camera_macos/camera_macos.dart';
-import 'package:flutter/foundation.dart';
+import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as pathJoiner;
 import 'package:path_provider/path_provider.dart';
 import 'package:photobooth_qr/src/photobooth/backend/db.dart';
@@ -31,11 +33,231 @@ class CapturePageState extends State<CapturePage> {
   bool streamImage = false;
   String? _downloadUrl;
   bool isImageCaptured = false;
+  bool isLoading = false;
+  //windows
+  int _cameraId = -1;
+  late CameraPlatform _cameraPlatform;
+  bool _isCameraInitialized = false;
+
   @override
   void initState() {
     super.initState();
-    cameraMode = CameraMacOSMode.photo;
-    listVideoDevices();
+    if (Platform.isMacOS) {
+      cameraMode = CameraMacOSMode.photo;
+      listVideoDevices();
+    } else if (Platform.isWindows) {
+      _cameraPlatform = CameraPlatform.instance;
+      _fetchCameras();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        title: const Text(
+          'PhotoBooth',
+          style: TextStyle(color: Colors.white),
+        ),
+      ),
+      body: Stack(
+        children: [
+          //* Camera Preview
+          if (selectedVideoDevice != null &&
+              selectedVideoDevice!.isNotEmpty &&
+              Platform.isMacOS) ...{
+            CameraMacOSView(
+              key: cameraKey,
+              deviceId: selectedVideoDevice,
+              fit: BoxFit.cover,
+              cameraMode: CameraMacOSMode.photo,
+              pictureFormat: PictureFormat.png,
+              onCameraInizialized: (CameraMacOSController controller) {
+                setState(() {
+                  macOSController = controller;
+                });
+              },
+              onCameraDestroyed: () {
+                return const Text("Camera Destroyed!");
+              },
+              enableAudio: enableAudio,
+              usePlatformView: usePlatformView,
+            )
+          } else ...{
+            Center(
+              child: lastImagePreviewData == null
+                  ? (_isCameraInitialized
+                      ? _cameraPlatform.buildPreview(_cameraId)
+                      : const CircularProgressIndicator())
+                  : Container(
+                      constraints: const BoxConstraints.expand(),
+                      child: Image.memory(
+                        lastImagePreviewData!,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+            ),
+          },
+          //* Display Image
+          if (lastImagePreviewData != null) ...{
+            Image.memory(
+              lastImagePreviewData!,
+              fit: BoxFit.cover,
+              width: size.width,
+              height: size.height,
+            )
+          },
+
+          //* Buttons
+          if (isImageCaptured) ...[
+            Align(
+              alignment: Alignment.bottomRight,
+              child: InkWell(
+                onTap: () async {
+                  setState(() {
+                    isLoading = true;
+                  });
+
+                  await savePicture(lastImagePreviewData!);
+
+                  if (_downloadUrl != null) {
+                    setState(() {
+                      isLoading = false;
+                    });
+                    showQRCodeDialog(context, _downloadUrl!);
+                  } else {
+                    setState(() {
+                      isLoading = false;
+                    });
+                    // Handle the case where _downloadUrl is null
+                  }
+
+                  print('show QR code');
+                },
+                child: Image.asset(
+                  'assets/go_next_button_icon.png',
+                  height: 60,
+                  width: 60,
+                ),
+              ),
+            ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: InkWell(
+                onTap: () async {
+                  setState(() {
+                    isImageCaptured = false;
+                    lastImagePreviewData = null;
+                  });
+                  if (Platform.isMacOS) {
+                    if (macOSController != null) {
+                      await destroyCamera();
+                    }
+                    await listVideoDevices();
+                  } else {
+                    _reinitializeCamera();
+                  }
+                },
+                child: Image.asset(
+                  'assets/retake_button_icon.png',
+                  height: 60,
+                  width: 60,
+                ),
+              ),
+            ),
+            isLoading
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(
+                          color: Color.fromARGB(255, 225, 222, 222),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Processing....',
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelLarge
+                              ?.copyWith(
+                                color: const Color.fromARGB(255, 225, 222, 222),
+                              ),
+                        ),
+                      ],
+                    ),
+                  )
+                : Container(), // Show loading indicator
+          ] else ...[
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: ShutterButton(
+                key: const Key('photoboothPreview_photo_shutterButton'),
+                onCountdownComplete: () async {
+                  await captureImage();
+                  if (Platform.isMacOS) {
+                    setState(() {
+                      isImageCaptured = true;
+                    });
+                    destroyCamera();
+                  } else {
+                    setState(() {
+                      isImageCaptured = true;
+                    });
+                    _takePicture();
+                  }
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _fetchCameras() async {
+    List<CameraDescription> cameras = await _cameraPlatform.availableCameras();
+    _initializeCamera(cameras.first);
+    setState(() {});
+  }
+
+  Future<void> _initializeCamera(CameraDescription camera) async {
+    try {
+      _cameraId = await _cameraPlatform.createCamera(
+        camera,
+        ResolutionPreset.high,
+        enableAudio: false,
+      );
+      await _cameraPlatform.initializeCamera(_cameraId);
+
+      setState(() {
+        _isCameraInitialized = true;
+        lastImagePreviewData = null;
+      });
+    } on PlatformException catch (e) {
+      print('Initialisation Error: ${e.toString()}');
+    }
+  }
+
+  Future<void> _reinitializeCamera() async {
+    if (_isCameraInitialized) {
+      await _cameraPlatform.dispose(_cameraId);
+    }
+    _fetchCameras();
+  }
+
+  Future<void> _takePicture() async {
+    final XFile file = await _cameraPlatform.takePicture(_cameraId);
+    Uint8List imageBytes = await file.readAsBytes();
+    img.Image originalImage = img.decodeImage(imageBytes)!;
+    img.Image flippedImage = img.flipHorizontal(originalImage);
+    lastImagePreviewData = Uint8List.fromList(img.encodeJpg(flippedImage));
+    await _cameraPlatform.dispose(_cameraId);
+
+    setState(() {
+      _isCameraInitialized = false;
+    });
   }
 
   String get cameraButtonText {
@@ -50,113 +272,6 @@ class CapturePageState extends State<CapturePage> {
     return pathJoiner.join(
       directory.path,
       "P_${DateTime.now().year}${DateTime.now().month}${DateTime.now().day}_${DateTime.now().hour}${DateTime.now().minute}${DateTime.now().second}.png",
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    Size size = MediaQuery.of(context).size;
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        title: const Text(
-          'PhotoBooth',
-          style: TextStyle(color: Colors.white),
-        ),
-      ),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          Image.asset(
-            'assets/background_image.jpg',
-            fit: BoxFit.cover,
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 100, vertical: 80),
-            child: Stack(
-              alignment: Alignment.bottomCenter,
-              children: [
-                lastImagePreviewData != null
-                    ? SizedBox(
-                        height: (size.width - 24) * (9 / 16),
-                        child: Stack(
-                          children: [
-                            Image.memory(
-                              lastImagePreviewData!,
-                              fit: BoxFit.cover,
-                            ),
-                            Positioned(
-                              top: 10,
-                              left: 10,
-                              child: InkWell(
-                                onTap: () {
-                                  setState(() {
-                                    isImageCaptured = false;
-                                    lastImagePreviewData = null;
-                                  });
-                                },
-                                child: Image.asset(
-                                  'assets/retake_button_icon.png',
-                                  height: 60,
-                                  width: 60,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : (selectedVideoDevice != null &&
-                            selectedVideoDevice!.isNotEmpty)
-                        ? SizedBox(
-                            height: (size.width - 24) * (9 / 16),
-                            child: CameraMacOSView(
-                              key: cameraKey,
-                              deviceId: selectedVideoDevice,
-                              fit: BoxFit.fitWidth,
-                              cameraMode: CameraMacOSMode.photo,
-                              pictureFormat: PictureFormat.png,
-                              onCameraInizialized:
-                                  (CameraMacOSController controller) {
-                                setState(() {
-                                  macOSController = controller;
-                                });
-                              },
-                              onCameraDestroyed: () {
-                                return const Text("Camera Destroyed!");
-                              },
-                              enableAudio: enableAudio,
-                              usePlatformView: usePlatformView,
-                            ),
-                          )
-                        : const SizedBox.shrink(),
-                isImageCaptured
-                    ? InkWell(
-                        onTap: () {
-                          if (_downloadUrl != null) {
-                            showQRCodeDialog(context, _downloadUrl!);
-                          }
-                        },
-                        child: Image.asset(
-                          'assets/go_next_button_icon.png',
-                          height: 60,
-                          width: 60,
-                        ),
-                      )
-                    : ShutterButton(
-                        key: const Key('photoboothPreview_photo_shutterButton'),
-                        onCountdownComplete: () async {
-                          await captureImage();
-                          setState(() {
-                            isImageCaptured = true;
-                          });
-                          destroyCamera();
-                        },
-                      ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -242,7 +357,7 @@ class CapturePageState extends State<CapturePage> {
         if (imageData != null) {
           setState(() {
             lastImagePreviewData = imageData.bytes;
-            savePicture(lastImagePreviewData!);
+            // savePicture(lastImagePreviewData!);
           });
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Captured Successfully')),
@@ -255,6 +370,18 @@ class CapturePageState extends State<CapturePage> {
       }
     }
   }
+
+  @override
+  void dispose() {
+    if (Platform.isWindows) {
+      if (_isCameraInitialized) {
+        _cameraPlatform.dispose(_cameraId);
+      }
+    } else {
+      destroyCamera();
+    }
+    super.dispose();
+  }
 }
 
 Future<void> showQRCodeDialog(BuildContext context, String url) async {
@@ -262,7 +389,13 @@ Future<void> showQRCodeDialog(BuildContext context, String url) async {
     context: context,
     builder: (BuildContext context) {
       return AlertDialog(
-        title: const Text('Scan to download Capture'),
+        title: Text(
+          'Scan to download Capture',
+          style: Theme.of(context)
+              .textTheme
+              .titleLarge
+              ?.copyWith(fontWeight: FontWeight.w600),
+        ),
         contentPadding: const EdgeInsets.all(16.0),
         content: ConstrainedBox(
           constraints: const BoxConstraints(
@@ -289,7 +422,9 @@ Future<void> showQRCodeDialog(BuildContext context, String url) async {
         actions: [
           TextButton(
             onPressed: () {
+              print('url:$url');
               Navigator.of(context).pop();
+              StoreDbFile().deleteFileFromFirebase(fileUrl: url);
             },
             child: const Text('OK'),
           ),
