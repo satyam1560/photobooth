@@ -27,10 +27,6 @@ class CapturePageState extends State<CapturePage> {
   List<CameraMacOSDevice> videoDevices = [];
   String? selectedVideoDevice;
   File? lastPictureTaken;
-  bool enableAudio = false;
-  bool enableTorch = false;
-  bool usePlatformView = false;
-  bool streamImage = false;
   String? _downloadUrl;
   bool isImageCaptured = false;
   bool isLoading = false;
@@ -82,8 +78,8 @@ class CapturePageState extends State<CapturePage> {
               onCameraDestroyed: () {
                 return const Text("Camera Destroyed!");
               },
-              enableAudio: enableAudio,
-              usePlatformView: usePlatformView,
+              enableAudio: false,
+              usePlatformView: false,
             )
           } else ...{
             Center(
@@ -115,6 +111,10 @@ class CapturePageState extends State<CapturePage> {
             Align(
               alignment: Alignment.bottomRight,
               child: InkWell(
+                // onTap: () {
+                //   Navigator.push(context,
+                //       MaterialPageRoute(builder: (context) => ScrollDownImage()));
+                // },
                 onTap: () async {
                   setState(() {
                     isLoading = true;
@@ -136,10 +136,13 @@ class CapturePageState extends State<CapturePage> {
 
                   print('show QR code');
                 },
-                child: Image.asset(
-                  'assets/go_next_button_icon.png',
-                  height: 60,
-                  width: 60,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Image.asset(
+                    'assets/go_next_button_icon.png',
+                    height: 60,
+                    width: 60,
+                  ),
                 ),
               ),
             ),
@@ -162,8 +165,8 @@ class CapturePageState extends State<CapturePage> {
                 },
                 child: Image.asset(
                   'assets/retake_button_icon.png',
-                  height: 60,
-                  width: 60,
+                  height: 100,
+                  width: 100,
                 ),
               ),
             ),
@@ -188,7 +191,7 @@ class CapturePageState extends State<CapturePage> {
                       ],
                     ),
                   )
-                : Container(), // Show loading indicator
+                : Container(),
           ] else ...[
             Align(
               alignment: Alignment.bottomCenter,
@@ -357,11 +360,7 @@ class CapturePageState extends State<CapturePage> {
         if (imageData != null) {
           setState(() {
             lastImagePreviewData = imageData.bytes;
-            // savePicture(lastImagePreviewData!);
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Captured Successfully')),
-          );
         }
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -382,54 +381,66 @@ class CapturePageState extends State<CapturePage> {
     }
     super.dispose();
   }
-}
 
-Future<void> showQRCodeDialog(BuildContext context, String url) async {
-  showDialog(
-    context: context,
-    builder: (BuildContext context) {
-      return AlertDialog(
-        title: Text(
-          'Scan to download Capture',
-          style: Theme.of(context)
-              .textTheme
-              .titleLarge
-              ?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        contentPadding: const EdgeInsets.all(16.0),
-        content: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxHeight: 300,
-            maxWidth: 300,
+  Future<void> showQRCodeDialog(BuildContext context, String url) async {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(
+            'Scan to download Capture',
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.w600),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.keyboard_double_arrow_down_outlined,
-                size: 50,
-              ),
-              SizedBox(
-                height: 200,
-                width: 200,
-                child: MyWidget(
-                  downloadUrl: url,
+          contentPadding: const EdgeInsets.all(16.0),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxHeight: 300,
+              maxWidth: 300,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.keyboard_double_arrow_down_outlined,
+                  size: 50,
                 ),
-              ),
-            ],
+                SizedBox(
+                  height: 200,
+                  width: 200,
+                  child: MyWidget(
+                    downloadUrl: url,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              print('url:$url');
-              Navigator.of(context).pop();
-              StoreDbFile().deleteFileFromFirebase(fileUrl: url);
-            },
-            child: const Text('OK'),
-          ),
-        ],
-      );
-    },
-  );
+          actions: [
+            TextButton(
+              onPressed: () async {
+                print('url:$url');
+                Navigator.of(context).pop();
+                StoreDbFile().deleteFileFromFirebase(fileUrl: url);
+                setState(() {
+                  isImageCaptured = false;
+                  lastImagePreviewData = null;
+                });
+                if (Platform.isMacOS) {
+                  if (macOSController != null) {
+                    await destroyCamera();
+                  }
+                  await listVideoDevices();
+                } else {
+                  _reinitializeCamera();
+                }
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }

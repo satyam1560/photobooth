@@ -48,6 +48,7 @@ dependencies:
   camera_platform_interface: ^2.6.0
 
   image: ^4.2.0
+  audioplayers: ^6.0.0
 
 
 dev_dependencies:

@@ -1,23 +1,18 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
-
 const _shutterCountdownDuration = Duration(seconds: 3);
-
-// AudioPlayer _getAudioPlayer() => AudioPlayer();
 
 class ShutterButton extends StatefulWidget {
   const ShutterButton({
     required this.onCountdownComplete,
     super.key,
-    // ValueGetter<AudioPlayer>? audioPlayer,
   });
-  //  : _audioPlayer = audioPlayer ?? _getAudioPlayer;
 
   final VoidCallback onCountdownComplete;
-  // final ValueGetter<AudioPlayer> _audioPlayer;
 
   @override
   State<ShutterButton> createState() => _ShutterButtonState();
@@ -26,8 +21,8 @@ class ShutterButton extends StatefulWidget {
 class _ShutterButtonState extends State<ShutterButton>
     with TickerProviderStateMixin {
   late final AnimationController controller;
-  // late final AudioPlayer audioPlayer;
 
+  late AudioPlayer audioPlayer;
   void _onAnimationStatusChanged(AnimationStatus status) {
     if (status == AnimationStatus.dismissed) {
       widget.onCountdownComplete();
@@ -37,17 +32,11 @@ class _ShutterButtonState extends State<ShutterButton>
   @override
   void initState() {
     super.initState();
-    // audioPlayer = widget._audioPlayer()..setAsset('assets/audio/camera.mp3');
+    audioPlayer = AudioPlayer();
     controller = AnimationController(
       vsync: this,
       duration: _shutterCountdownDuration,
     )..addStatusListener(_onAnimationStatusChanged);
-    // unawaited(audioPlayer.play());
-    // audioPlayer.playerStateStream.listen((event) {
-    //   if (event.processingState == ProcessingState.ready) {
-    //     audioPlayer.pause();
-    //   }
-    // });
   }
 
   @override
@@ -55,14 +44,19 @@ class _ShutterButtonState extends State<ShutterButton>
     controller
       ..removeStatusListener(_onAnimationStatusChanged)
       ..dispose();
-    // audioPlayer.dispose();
+    audioPlayer.dispose();
     super.dispose();
   }
 
   Future<void> _onShutterPressed() async {
-    // await audioPlayer.seek(null);
-    // unawaited(audioPlayer.play());
-    unawaited(controller.reverse(from: 1));
+    try {
+      
+      await audioPlayer.setSourceAsset('camera.mp3');
+      await audioPlayer.play(AssetSource('camera.mp3'));
+      await controller.reverse(from: 1);
+    } catch (e) {
+      print('Error playing audio: $e');
+    }
   }
 
   @override
@@ -121,11 +115,11 @@ class CameraButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // final l10n = context.l10n;
+
     return Semantics(
       focusable: true,
       button: true,
-      // label: l10n.shutterButtonLabelText,
+   
       child: Material(
         clipBehavior: Clip.hardEdge,
         shape: const CircleBorder(),
@@ -151,7 +145,7 @@ class TimerPainter extends CustomPainter {
 
   final Animation<double> animation;
   final int countdown;
-  @visibleForTesting
+
   Color calculateColor() {
     if (countdown == 3) return Colors.blue;
     if (countdown == 2) return Colors.orange;
